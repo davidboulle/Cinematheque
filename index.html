@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cinémathèque</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <header>
+    <div class="header-inner">
+      <h1>🎞 CINÉMATHÈQUE</h1>
+      <input type="text" class="search" id="search" placeholder="Rechercher un titre, un réalisateur, un acteur…">
+      <button class="btn" id="scanBtn">↻ Rescanner les dossiers</button>
+      <button class="btn" id="genThumbsBtn"
+        title="Extrait une image de chaque film via ffmpeg — peut prendre du temps la première fois">🎬 Générer les
+        miniatures</button>
+    </div>
+    <div class="sprockets"></div>
+  </header>
+
+  <div class="layout">
+    <aside id="sidebar">
+      <div class="nav-group" data-group="vue">
+        <div class="nav-content">
+          <div class="nav-item active" data-filter="all">Tous les films <span class="count" id="count-all"></span></div>
+          <div class="nav-item" data-filter="favorites">★ Favoris <span class="count" id="count-fav"></span></div>
+        </div>
+      </div>
+
+      <div class="nav-group" data-group="playlists">
+        <h2>Playlists</h2>
+        <div class="nav-content">
+          <div id="playlists-list"></div>
+          <div class="nav-item new-playlist" id="newPlaylist">+ Nouvelle playlist</div>
+        </div>
+      </div>
+
+      <div class="nav-group nav-tags">
+        <h2>Étiquettes</h2>
+        <div class="nav-content">
+          <div class="nav-settings tags-settings">
+            <input type="text" class="search tags-search" id="tags-search" placeholder="Rechercher...">
+            <button class="btn btn-tagsidebar" id="clearTagsBtn"
+              title="Réinitialiser les étiquettes sélectionnées">×</button>
+            <button class="btn btn-tagsidebar" id="editTagsBtn">✎</button>
+          </div>
+          <div id="tags-list"></div>
+        </div>
+      </div>
+
+      <div class="nav-group" data-group="films">
+        <h2>Gestion</h2>
+        <div class="nav-content">
+          <div class="nav-item" data-filter="duplicates">⚠ Doublons potentiels <span class="count"
+              id="count-dup"></span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main>
+      <div class="section-header">
+        <h2 class="section-title" id="sectionTitle">Tous les films <span class="tag" id="sectionCount">0</span></h2>
+        <div class="list-settings">
+          <button class="btn" id="sortType">RND</button>
+          <button class="btn" id="showHideThumbnails">🖼️</button>
+          <div class="bulk-tag-form">
+            <div class="autocomplete-wrap">
+              <input type="text" id="bulkTagInput" placeholder="Nouvelle étiquette..." autocomplete="off">
+              <div class="autocomplete-list" id="bulkTagAutocomplete"></div>
+            </div>
+            <button class="btn" id="bulkTagBtn">Étiquetter</button>
+          </div>
+        </div>
+      </div>
+      <div class="grid" id="grid"></div>
+      <div class="empty" id="emptyMsg" style="display:none;">Aucun film ici pour l'instant.</div>
+    </main>
+  </div>
+
+  <footer>Cinémathèque locale — les données sont stockées dans library.json à côté du serveur</footer>
+
+  <script src="script.js"></script>
+</body>
+
+</html>

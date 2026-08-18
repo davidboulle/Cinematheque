@@ -1,0 +1,14 @@
+# Fichiers de configuration sensibles
+config.py
+
+# Fichier de données
+library.json
+library_backup.json
+
+# Dossiers générés automatiquement
+thumbnails/
+__pycache__/
+
+# Raccourcis & autres
+*.bat
+*.lnk
