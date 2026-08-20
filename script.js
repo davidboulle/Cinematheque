@@ -7,6 +7,8 @@ let tagsEditMode = false;
 let bulkTagCandidates = [];
 let showThumbnails = true;
 let sortType = 'random';
+let sortOrder = 'asc';
+let randomSeed = Math.floor(Math.random() * 1000000);
 let activePopoverAnchor = null;
 
 // ==========================================
@@ -55,6 +57,11 @@ function escapeAttr(str) {
     return escapeHtml(str); 
 }
 
+function seededRandom(seed) {
+    const x = Math.sin(seed++) * 10000;
+    return x - Math.floor(x);
+}
+
 function filteredMovies() {
     let movies = movieList();
 
@@ -82,13 +89,16 @@ function filteredMovies() {
         );
     }
 
-    if (sortType === 'name_asc') {
+    if (sortType === 'name') {
         movies.sort((a, b) => a.title.localeCompare(b.title));
-    } else if (sortType === 'name_desc') {
-        movies.sort((a, b) => b.title.localeCompare(a.title));
+        if (sortOrder === 'desc') movies.reverse();
+    } else if (sortType === 'size') {
+        movies.sort((a, b) => (a.size_bytes || 0) - (b.size_bytes || 0));
+        if (sortOrder === 'desc') movies.reverse();
     } else if (sortType === 'random') {
+        let seed = randomSeed;
         for (let i = movies.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
+            const j = Math.floor(seededRandom(seed++) * (i + 1));
             [movies[i], movies[j]] = [movies[j], movies[i]];
         }
     }
@@ -333,13 +343,21 @@ function openDetailsPopover(id, anchor) {
 function renderOptions() {
     let btnThumbnails = document.getElementById('showHideThumbnails');
     let btnSort = document.getElementById('sortType');
+    let btnOrder = document.getElementById('sortOrder');
 
     switch (sortType) {
-        case 'name_asc': btnSort.textContent = 'Titre ↓'; break;
-        case 'name_desc': btnSort.textContent = 'Titre ↑'; break;
+        case 'name': btnSort.textContent = 'Titre'; break;
+        case 'size': btnSort.textContent = 'Poids'; break;
         case 'random':
         default: btnSort.textContent = 'Aléatoire';
     }
+    
+    if (sortType === 'random') {
+        btnOrder.textContent = '🔄';
+    } else {
+        btnOrder.textContent = sortOrder === 'asc' ? '⬇️' : '⬆️';
+    }
+    
     btnThumbnails.textContent = showThumbnails ? '🖼️' : '✖️';
 }
 
@@ -663,6 +681,7 @@ document.getElementById('scanBtn').onclick = async () => {
     btn.textContent = '↻ Rescanner les dossiers';
     renderSidebar();
     renderGrid();
+    try { await checkMoved(); } catch (e) { console.error('checkMoved after scan failed', e); }
 };
 
 document.getElementById('editTagsBtn').onclick = () => {
@@ -784,11 +803,23 @@ document.addEventListener('click', (e) => {
 
 document.getElementById('sortType').onclick = (e) => {
     switch (sortType) {
-        case 'name_asc': sortType = 'name_desc'; e.target.textContent = 'Titre ↑'; break;
-        case 'name_desc': sortType = 'random'; e.target.textContent = 'Aléatoire'; break;
+        case 'name': sortType = 'size'; break;
+        case 'size': sortType = 'random'; break;
         case 'random':
-        default: sortType = 'name_asc'; e.target.textContent = 'Titre ↓'; break;
+        default: sortType = 'name'; break;
     }
+    renderOptions();
+    renderGrid();
+};
+
+document.getElementById('sortOrder').onclick = (e) => {
+    if (sortType === 'random') {
+        randomSeed = Math.floor(Math.random() * 1000000);
+        renderGrid();
+        return;
+    }
+    sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+    renderOptions();
     renderGrid();
 };
 
@@ -805,3 +836,45 @@ document.getElementById('showHideThumbnails').onclick = (e) => {
 
 setupSidebarDelegatedEvents();
 loadLibrary();
+
+
+// ==========================================
+// MOVED FILES NOTIFICATIONS
+// ==========================================
+async function checkMoved() {
+    try {
+        const res = await api('/api/moved');
+        if (Array.isArray(res) && res.length) {
+            showMovedNotifications(res);
+        }
+    } catch (e) { console.error('Erreur checkMoved', e); }
+}
+
+function showMovedNotifications(list) {
+    if (!Array.isArray(list) || list.length === 0) return;
+    const lines = list.map((it, i) => {
+        const title = it.title || '';
+        const oldp = it.old_path || '';
+        const newp = it.new_path || '';
+        return `${i+1}. ${title}\n   Ancien: ${oldp}\n   Nouveau: ${newp}`;
+    });
+
+    const msg = `Les fichiers suivants semblent avoir été déplacés:\n\n${lines.join('\n\n')}\n\nOK = Confirmer tous les déplacements\nAnnuler = Ignorer tous`;
+    const ok = confirm(msg);
+    (async () => {
+        if (ok) {
+            for (const it of list) {
+                try {
+                    await api('/api/moved/confirm', { method: 'POST', body: JSON.stringify({ old_mid: it.old_mid, new_mid: it.new_mid }) });
+                } catch (e) { console.error('confirm move', e); }
+            }
+        } else {
+            for (const it of list) {
+                try {
+                    await api('/api/moved/dismiss', { method: 'POST', body: JSON.stringify({ old_mid: it.old_mid, new_mid: it.new_mid }) });
+                } catch (e) { console.error('dismiss move', e); }
+            }
+        }
+        try { await loadLibrary(); } catch (e) { console.error(e); }
+    })();
+}

@@ -187,17 +187,81 @@ def generate_thumbnail(mid: str, video_path: str) -> bool:
 
 def generate_all_thumbnails():
     lib = load_library()
-    res = {"generated": 0, "skipped": 0, "failed": 0}
+    res = {"generated": 0, "skipped": 0, "failed": 0, "deleted": 0}
+    
+    # Get all existing movie IDs
+    existing_ids = set(lib["movies"].keys())
+    
+    # Clean up thumbnails for deleted movies
+    if THUMBNAILS_DIR.exists():
+        for thumb_file in THUMBNAILS_DIR.iterdir():
+            if thumb_file.is_file() and thumb_file.suffix.lower() == '.jpg':
+                # Extract mid from filename like "abc123_1.jpg"
+                parts = thumb_file.stem.rsplit('_', 1)
+                if len(parts) == 2:
+                    mid = parts[0]
+                    if mid not in existing_ids:
+                        try:
+                            thumb_file.unlink()
+                            res["deleted"] += 1
+                            print(f"Deleted thumbnail for removed movie ID: {mid}")
+                        except Exception:
+                            pass
+    
+    # Generate thumbnails for existing movies
     for mid, m in lib["movies"].items():
         if m.get("missing"):
             continue
-        if (THUMBNAILS_DIR / f"{mid}.jpg").exists():
+        out_paths = [THUMBNAILS_DIR / f"{mid}_{i+1}.jpg" for i in range(len(THUMBNAIL_TIMESTAMPS_PERCENT))]
+        if all(p.exists() for p in out_paths):
             res["skipped"] += 1
             continue
         if generate_thumbnail(mid, m["path"]):
             res["generated"] += 1
+            print(f"Generated thumbnails for: {m.get('title', 'Unknown')}")
         else:
             res["failed"] += 1
+            print(f"Failed to generate thumbnails for: {m.get('title', 'Unknown')}")
+    return res
+
+
+def detect_moved_files(lib):
+    """Parcourt les groupes de doublons et retourne les paires suspectes de fichiers déplacés.
+
+    Retourne une liste d'objets { old_mid, new_mid, title, old_path, new_path }.
+    On considère un déplacement lorsque, pour un même dup_key, il y a exactement
+    deux membres : un avec missing=True (ancien) et un avec missing=False (nouveau).
+    Les paires stockées dans lib.get('dismissed_moves', []) sont ignorées.
+    """
+    by_dup = {}
+    for mid, m in lib.get('movies', {}).items():
+        k = m.get('dup_key')
+        if not k:
+            continue
+        by_dup.setdefault(k, []).append((mid, m))
+
+    dismissed = set(lib.get('dismissed_moves', []))
+    res = []
+    for k, items in by_dup.items():
+        if len(items) != 2:
+            continue
+        (a_mid, a), (b_mid, b) = items[0], items[1]
+        # exactly one missing True and exactly one missing False
+        if bool(a.get('missing')) == bool(b.get('missing')):
+            continue
+        old_mid, old = (a_mid, a) if a.get('missing') else (b_mid, b)
+        new_mid, new = (b_mid, b) if a.get('missing') else (a_mid, a)
+        key = f"{old_mid}|{new_mid}"
+        if key in dismissed:
+            continue
+        title = old.get('title') or new.get('title') or ''
+        res.append({
+            'old_mid': old_mid,
+            'new_mid': new_mid,
+            'title': title,
+            'old_path': old.get('path'),
+            'new_path': new.get('path')
+        })
     return res
 
 
@@ -255,6 +319,8 @@ class Handler(BaseHTTPRequestHandler):
         qs = parse_qs(parsed.query)
         if parsed.path == "/api/library":
             self._send_json(lib)
+        elif parsed.path == "/api/moved":
+            self._send_json(detect_moved_files(lib))
         elif parsed.path == "/api/scan":
             self._send_json(scan_movies())
         elif parsed.path == "/api/play":
@@ -289,6 +355,56 @@ class Handler(BaseHTTPRequestHandler):
             int(self.headers.get("Content-Length", 0))).decode("utf-8"))
         lib = load_library()
         path = urlparse(self.path).path
+
+        if path == "/api/moved/confirm":
+            old_mid = body.get('old_mid')
+            new_mid = body.get('new_mid')
+            if not old_mid or not new_mid or old_mid not in lib.get('movies', {}) or new_mid not in lib.get('movies', {}):
+                self._send_json({"error": "invalid ids"}, 400)
+                return
+            old = lib['movies'][old_mid]
+            new = lib['movies'][new_mid]
+
+            # The old entry's metadata has priority.
+            old['path'] = new.get('path')
+            old['missing'] = False
+
+            for pl_name, pl in lib.get('playlists', {}).items():
+                new_pl = []
+                seen = set()
+                for mid in pl:
+                    mid_to_add = old_mid if mid == new_mid else mid
+                    if mid_to_add in seen:
+                        continue
+                    new_pl.append(mid_to_add)
+                    seen.add(mid_to_add)
+                lib['playlists'][pl_name] = new_pl
+
+            # Replace references in duplicate_of lists across movies
+            for m in lib.get('movies', {}).values():
+                if 'duplicate_of' in m and isinstance(m['duplicate_of'], list):
+                    m['duplicate_of'] = [old_mid if x == new_mid else x for x in m['duplicate_of']]
+
+            # Remove new_mid
+            lib['movies'].pop(new_mid, None)
+
+            save_library(lib)
+            self._send_json({"ok": True})
+            return
+
+        if path == "/api/moved/dismiss":
+            old_mid = body.get('old_mid')
+            new_mid = body.get('new_mid')
+            if not old_mid or not new_mid:
+                self._send_json({"error": "invalid ids"}, 400)
+                return
+            key = f"{old_mid}|{new_mid}"
+            dismissed = lib.setdefault('dismissed_moves', [])
+            if key not in dismissed:
+                dismissed.append(key)
+            save_library(lib)
+            self._send_json({"ok": True})
+            return
 
         if path == "/api/favorite":
             lib["movies"][body["id"]]["favorite"] = bool(body["value"])

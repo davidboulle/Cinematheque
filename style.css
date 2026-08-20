@@ -325,30 +325,20 @@ main {
     display: flex;
     gap: 6px;
     align-items: center;
+    height: 40px;
+}
+
+.list-settings > * {
+    height: 100%;
+}
+
+.list-settings .btn-icon {
+    width: 44px;
+    padding: 0px;
 }
 
 #showHideThumbnails {
     position: relative;
-}
-
-#showHideThumbnails::after {
-    content: '🖼️';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1em;
-    line-height: 0;
-}
-
-#showHideThumbnails.active::after {
-    content: '✖️';
-    filter: grayscale(1);
-    opacity: .5;
 }
 
 .bulk-tag-form {
@@ -368,6 +358,7 @@ main {
     margin: auto;
     margin-right: -1px;
     outline: 0px solid !important;
+    height: 100%;
 }
 
 .bulk-tag-form button {
