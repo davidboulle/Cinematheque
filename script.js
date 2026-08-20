@@ -22,6 +22,13 @@ async function api(path, opts) {
 
 async function loadLibrary() {
     library = await api('/api/library');
+    // Apply persisted UI settings if present
+    const s = (library && library.settings) ? library.settings : {};
+    if (typeof s.showThumbnails !== 'undefined') showThumbnails = !!s.showThumbnails;
+    if (typeof s.sortType === 'string') sortType = s.sortType;
+    if (typeof s.sortOrder === 'string') sortOrder = s.sortOrder;
+    if (typeof s.randomSeed !== 'undefined') randomSeed = s.randomSeed;
+
     renderSidebar();
     renderGrid();
     renderOptions();
@@ -873,17 +880,22 @@ document.getElementById('sortType').onclick = (e) => {
     }
     renderOptions();
     renderGrid();
+    // Persist new sortType
+    api('/api/settings', { method: 'POST', body: JSON.stringify({ sortType }) }).catch(() => {});
 };
 
 document.getElementById('sortOrder').onclick = (e) => {
     if (sortType === 'random') {
         randomSeed = Math.floor(Math.random() * 1000000);
         renderGrid();
+        api('/api/settings', { method: 'POST', body: JSON.stringify({ randomSeed }) }).catch(() => {});
         return;
     }
     sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
     renderOptions();
     renderGrid();
+    // Persist new sort order
+    api('/api/settings', { method: 'POST', body: JSON.stringify({ sortOrder }) }).catch(() => {});
 };
 
 document.getElementById('showHideThumbnails').onclick = (e) => {
@@ -891,6 +903,8 @@ document.getElementById('showHideThumbnails').onclick = (e) => {
     showThumbnails = !showThumbnails;
     e.target.textContent = showThumbnails ? '🖼️' : '✖️';
     renderGrid();
+    // Persist thumbnail visibility
+    api('/api/settings', { method: 'POST', body: JSON.stringify({ showThumbnails }) }).catch(() => {});
 };
 
 // ==========================================

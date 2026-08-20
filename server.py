@@ -319,6 +319,9 @@ class Handler(BaseHTTPRequestHandler):
         qs = parse_qs(parsed.query)
         if parsed.path == "/api/library":
             self._send_json(lib)
+        elif parsed.path == "/api/settings":
+            # Return stored UI/settings for the web app
+            self._send_json(lib.get('settings', {}))
         elif parsed.path == "/api/moved":
             self._send_json(detect_moved_files(lib))
         elif parsed.path == "/api/scan":
@@ -430,6 +433,17 @@ class Handler(BaseHTTPRequestHandler):
                 dismissed.append(key)
             save_library(lib)
             self._send_json({"ok": True})
+            return
+
+        if path == "/api/settings":
+            # Update persistent UI settings sent from the frontend
+            settings = body if isinstance(body, dict) else {}
+            lib['settings'] = lib.get('settings', {})
+            # Merge provided keys
+            for k, v in settings.items():
+                lib['settings'][k] = v
+            save_library(lib)
+            self._send_json({"ok": True, "settings": lib['settings']})
             return
 
         if path == "/api/favorite":
