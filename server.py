@@ -344,9 +344,35 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/reveal":
             m = lib["movies"].get(qs.get("id", [None])[0])
             if m:
-                subprocess.Popen(["explorer", f"/select,{m['path']}"] if sys.platform.startswith(
-                    "win") else ["xdg-open", str(Path(m['path']).parent)])
-                self._send_json({"ok": True})
+                p = Path(m.get('path') or '')
+                # On Windows: wrap paths in quotes to handle spaces, and prefer selecting the file if it exists.
+                if sys.platform.startswith("win"):
+                    try:
+                        if p.exists():
+                            cmd = f'explorer /select,"{str(p.resolve())}"'
+                            subprocess.Popen(cmd, shell=True)
+                            self._send_json({"ok": True})
+                            return
+                        elif p.parent.exists():
+                            cmd = f'explorer "{str(p.parent.resolve())}"'
+                            subprocess.Popen(cmd, shell=True)
+                            self._send_json({"ok": True})
+                            return
+                        else:
+                            self._send_json({"error": "introuvable"}, 404)
+                            return
+                    except Exception as e:
+                        self._send_json({"error": str(e)}, 500)
+                        return
+                else:
+                    # Non-Windows: open the parent directory
+                    if p.exists() or p.parent.exists():
+                        subprocess.Popen(["xdg-open", str(p.parent)])
+                        self._send_json({"ok": True})
+                        return
+                    else:
+                        self._send_json({"error": "introuvable"}, 404)
+                        return
             else:
                 self._send_json({"error": "introuvable"}, 404)
 
@@ -429,6 +455,15 @@ class Handler(BaseHTTPRequestHandler):
                 pl.remove(body["id"])
             else:
                 pl.append(body["id"])
+        elif path == "/api/movie/delete":
+            movie_id = body.get("id")
+            if movie_id in lib.get("movies", {}):
+                lib["movies"].pop(movie_id, None)
+                for pl in lib.get("playlists", {}).values():
+                    if movie_id in pl:
+                        pl.remove(movie_id)
+            self._send_json({"ok": True})
+            return
 
         save_library(lib)
         self._send_json({"ok": True, "playlists": lib.get("playlists")})

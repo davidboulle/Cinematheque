@@ -176,6 +176,38 @@ function closePopover() {
     activePopoverAnchor = null;
 }
 
+function attachTagRemoveListeners(pop, id, m) {
+    pop.querySelectorAll('[data-tag-rm]').forEach(pill => {
+        pill.onclick = async () => {
+            const tags = (m.tags || []).filter(t => t !== pill.dataset.tagRm);
+            await api('/api/tags', { method: 'POST', body: JSON.stringify({ id, tags }) });
+            m.tags = tags;
+            renderSidebar();
+            const tagsPillsEl = pop.querySelector('#tagsPills');
+            tagsPillsEl.innerHTML = (m.tags || []).map(t => `<span class="pill remove" data-tag-rm="${escapeAttr(t)}" style="border-color:var(--amber-dim); color:var(--amber);"># ${escapeHtml(t)}</span>`).join('') || `<span style="font-size:12px;color:var(--text-muted);">Aucune</span>`;
+            attachTagRemoveListeners(pop, id, m);
+        };
+    });
+}
+
+function attachPlaylistToggleListeners(pop, id) {
+    pop.querySelectorAll('[data-playlist]').forEach(pill => {
+        pill.onclick = async () => {
+            const name = pill.dataset.playlist;
+            const r = await api('/api/playlist/toggle', { method: 'POST', body: JSON.stringify({ name, id }) });
+            library.playlists = r.playlists;
+            renderSidebar();
+            const playlistPillsEl = pop.querySelector('#playlistPills');
+            const allPlaylists = Object.keys(library.playlists || {});
+            playlistPillsEl.innerHTML = allPlaylists.length ? allPlaylists.map(p => `
+              <span class="pill" data-playlist="${escapeAttr(p)}" style="cursor:pointer;${(library.playlists[p] || []).includes(id) ? 'border-color:var(--amber);color:var(--amber);' : ''}">
+                ${(library.playlists[p] || []).includes(id) ? '✓ ' : ''}${escapeHtml(p)}
+              </span>`).join('') : `<span style="font-size:12px;color:var(--text-muted);">Aucune playlist pour l'instant</span>`;
+            attachPlaylistToggleListeners(pop, id);
+        };
+    });
+}
+
 function togglePopover(anchor, openFn) {
     if (activePopoverAnchor === anchor) {
         closePopover();
@@ -274,9 +306,10 @@ function openDetailsPopover(id, anchor) {
             </span>`).join('') : `<span style="font-size:12px;color:var(--text-muted);">Aucune playlist pour l'instant</span>`}
         </div>
         <input type="text" id="newPlaylistFromCard" placeholder="Nouvelle playlist...">
-        <div class="dup-actions" style="margin-top:12px;">
+        <div class="detail-actions" style="margin-top:12px;">
           <button class="btn" id="detailsPlay">▶ Lire</button>
           <button class="btn" id="detailsReveal">📂 Ouvrir le dossier</button>
+          ${m.missing ? `<button class="btn" id="detailsDelete">🗑 Supprimer</button>` : ''}
         </div>
     `;
     document.body.appendChild(pop);
@@ -286,15 +319,27 @@ function openDetailsPopover(id, anchor) {
         const res = await api(`/api/reveal?id=${id}`);
         if (res.error) alert("Impossible d'ouvrir le dossier : " + res.error);
     };
+    if (m.missing && pop.querySelector('#detailsDelete')) {
+        pop.querySelector('#detailsDelete').onclick = async () => {
+            if (confirm(`Supprimer "${m.title}" de la bibliothèque ?`)) {
+                await api('/api/movie/delete', { method: 'POST', body: JSON.stringify({ id }) });
+                delete library.movies[id];
+                renderGrid();
+                renderSidebar();
+                closePopover();
+            }
+        };
+    }
 
     pop.querySelectorAll('[data-tag-rm]').forEach(pill => {
         pill.onclick = async () => {
             const tags = (m.tags || []).filter(t => t !== pill.dataset.tagRm);
             await api('/api/tags', { method: 'POST', body: JSON.stringify({ id, tags }) });
             m.tags = tags;
-            renderSidebar(); 
-            renderGrid();
-            openDetailsPopover(id, anchor);
+            renderSidebar();
+            const tagsPillsEl = pop.querySelector('#tagsPills');
+            tagsPillsEl.innerHTML = (m.tags || []).map(t => `<span class="pill remove" data-tag-rm="${escapeAttr(t)}" style="border-color:var(--amber-dim); color:var(--amber);"># ${escapeHtml(t)}</span>`).join('') || `<span style="font-size:12px;color:var(--text-muted);">Aucune</span>`;
+            attachTagRemoveListeners(pop, id, m);
         };
     });
 
@@ -304,9 +349,11 @@ function openDetailsPopover(id, anchor) {
             const tags = Array.from(new Set([...(m.tags || []), tagInput.value.trim()]));
             await api('/api/tags', { method: 'POST', body: JSON.stringify({ id, tags }) });
             m.tags = tags;
-            renderSidebar(); 
-            renderGrid();
-            openDetailsPopover(id, anchor);
+            renderSidebar();
+            const tagsPillsEl = pop.querySelector('#tagsPills');
+            tagsPillsEl.innerHTML = (m.tags || []).map(t => `<span class="pill remove" data-tag-rm="${escapeAttr(t)}" style="border-color:var(--amber-dim); color:var(--amber);"># ${escapeHtml(t)}</span>`).join('') || `<span style="font-size:12px;color:var(--text-muted);">Aucune</span>`;
+            tagInput.value = '';
+            attachTagRemoveListeners(pop, id, m);
         }
     };
 
@@ -316,7 +363,13 @@ function openDetailsPopover(id, anchor) {
             const r = await api('/api/playlist/toggle', { method: 'POST', body: JSON.stringify({ name, id }) });
             library.playlists = r.playlists;
             renderSidebar();
-            openDetailsPopover(id, anchor);
+            const playlistPillsEl = pop.querySelector('#playlistPills');
+            const allPlaylists = Object.keys(library.playlists || {});
+            playlistPillsEl.innerHTML = allPlaylists.length ? allPlaylists.map(p => `
+              <span class="pill" data-playlist="${escapeAttr(p)}" style="cursor:pointer;${(library.playlists[p] || []).includes(id) ? 'border-color:var(--amber);color:var(--amber);' : ''}">
+                ${(library.playlists[p] || []).includes(id) ? '✓ ' : ''}${escapeHtml(p)}
+              </span>`).join('') : `<span style="font-size:12px;color:var(--text-muted);">Aucune playlist pour l'instant</span>`;
+            attachPlaylistToggleListeners(pop, id);
         };
     });
 
@@ -329,7 +382,14 @@ function openDetailsPopover(id, anchor) {
             const rt = await api('/api/playlist/toggle', { method: 'POST', body: JSON.stringify({ name, id }) });
             library.playlists = rt.playlists;
             renderSidebar();
-            openDetailsPopover(id, anchor);
+            const playlistPillsEl = pop.querySelector('#playlistPills');
+            const allPlaylists = Object.keys(library.playlists || {});
+            playlistPillsEl.innerHTML = allPlaylists.length ? allPlaylists.map(p => `
+              <span class="pill" data-playlist="${escapeAttr(p)}" style="cursor:pointer;${(library.playlists[p] || []).includes(id) ? 'border-color:var(--amber);color:var(--amber);' : ''}">
+                ${(library.playlists[p] || []).includes(id) ? '✓ ' : ''}${escapeHtml(p)}
+              </span>`).join('') : `<span style="font-size:12px;color:var(--text-muted);">Aucune playlist pour l'instant</span>`;
+            playlistInput.value = '';
+            attachPlaylistToggleListeners(pop, id);
         }
     };
 
@@ -341,9 +401,12 @@ function openDetailsPopover(id, anchor) {
 // ==========================================
 
 function renderOptions() {
+    let listSettings = document.querySelector('.list-settings');
     let btnThumbnails = document.getElementById('showHideThumbnails');
     let btnSort = document.getElementById('sortType');
     let btnOrder = document.getElementById('sortOrder');
+
+    listSettings.style.display = 'flex';
 
     switch (sortType) {
         case 'name': btnSort.textContent = 'Titre'; break;

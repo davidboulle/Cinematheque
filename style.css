@@ -322,7 +322,7 @@ main {
 }
 
 .list-settings {
-    display: flex;
+    display: none;
     gap: 6px;
     align-items: center;
     height: 40px;
@@ -755,7 +755,7 @@ main {
 
 .dup-entry .dup-actions {
     display: flex;
-    gap: 6px;
+    gap: 8px;
 }
 
 .dup-entry .dup-actions button {
@@ -801,16 +801,26 @@ main {
     word-break: break-all;
 }
 
-.details-popover .dup-actions {
+.detail-actions {
     display: flex;
-    gap: 6px;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.detail-actions button {
+    flex: 1 0 calc(50% - 8px);
+    font-size: 11px;
+    padding: 7px 8px;
     margin-top: 10px;
 }
 
-.details-popover .dup-actions button {
-    flex: 1;
-    font-size: 11px;
-    padding: 7px 8px;
+.detail-actions:nth-child(2n) {
+    flex-basis: 100%;
+}
+
+.detail-actions #detailsDelete {
+    background-color: var(--velvet);
+    color: #fff;
 }
 
 footer {
