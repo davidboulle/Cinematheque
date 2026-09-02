@@ -5,12 +5,16 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+import threading
 import webbrowser
 import hashlib
 from collections import defaultdict
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
+
+_lib_lock = threading.Lock()  # à mettre en haut de ton fichier, au niveau global
 
 try:
     from config import (
@@ -22,9 +26,11 @@ except ImportError:
     print("[!] config.py introuvable. Crée-le avec MOVIE_ROOTS = [...]")
     sys.exit(1)
 
-DATA_FILE = Path(__file__).parent / "library.json"
 HTML_FILE = Path(__file__).parent / "index.html"
-THUMBNAILS_DIR = Path(__file__).parent / "thumbnails"
+DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR.mkdir(exist_ok=True)
+DATA_FILE = DATA_DIR / "library.json"
+THUMBNAILS_DIR = DATA_DIR / "thumbnails"
 
 # ============================================================ #
 #                    Méthodes Utilitaires                      #
@@ -38,10 +44,22 @@ def load_library():
 
 
 def save_library(lib):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(lib, f, ensure_ascii=False, indent=2)
+    dir_name = os.path.dirname(DATA_FILE)
+    with tempfile.NamedTemporaryFile('w', dir=dir_name, delete=False,
+                                     suffix='.tmp', encoding='utf-8') as tmp:
+        json.dump(lib, tmp, ensure_ascii=False, indent=2)
+        tmp_path = tmp.name
+    os.replace(tmp_path, DATA_FILE)  # atomique sur Linux/macOS/Windows
 
-
+def cleanup_tmp_files():
+    """Supprime les fichiers .tmp orphelins laissés par un arrêt brutal."""
+    for tmp_file in DATA_FILE.parent.glob("*.tmp"):
+        try:
+            tmp_file.unlink()
+            print(f"[startup] fichier temporaire orphelin supprimé : {tmp_file.name}")
+        except OSError as e:
+            print(f"[startup] impossible de supprimer {tmp_file.name} : {e}")
+            
 def movie_id(path: str) -> str:
     return hashlib.sha1(path.encode("utf-8")).hexdigest()[:16]
 
@@ -320,8 +338,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/library":
             self._send_json(lib)
         elif parsed.path == "/api/settings":
-            # Return stored UI/settings for the web app
             self._send_json(lib.get('settings', {}))
+        elif parsed.path == "/api/backup":
+            self._send_json()
         elif parsed.path == "/api/moved":
             self._send_json(detect_moved_files(lib))
         elif parsed.path == "/api/scan":
@@ -382,108 +401,164 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(
             int(self.headers.get("Content-Length", 0))).decode("utf-8"))
-        lib = load_library()
         path = urlparse(self.path).path
 
-        if path == "/api/moved/confirm":
-            old_mid = body.get('old_mid')
-            new_mid = body.get('new_mid')
-            if not old_mid or not new_mid or old_mid not in lib.get('movies', {}) or new_mid not in lib.get('movies', {}):
-                self._send_json({"error": "invalid ids"}, 400)
+        with _lib_lock:
+            lib = load_library()
+
+            # --- Routes avec return anticipé ---
+
+            if path == "/api/moved/confirm":
+                old_mid = body.get('old_mid')
+                new_mid = body.get('new_mid')
+                if not old_mid or not new_mid \
+                        or old_mid not in lib.get('movies', {}) \
+                        or new_mid not in lib.get('movies', {}):
+                    self._send_json({"error": "invalid ids"}, 400)
+                    return
+
+                old = lib['movies'][old_mid]
+                new = lib['movies'][new_mid]
+                old['path'] = new.get('path')
+                old['missing'] = False
+
+                for pl_name, pl in lib.get('playlists', {}).items():
+                    seen = set()
+                    new_pl = []
+                    for mid in pl:
+                        mid_to_add = old_mid if mid == new_mid else mid
+                        if mid_to_add not in seen:
+                            new_pl.append(mid_to_add)
+                            seen.add(mid_to_add)
+                    lib['playlists'][pl_name] = new_pl
+
+                for m in lib.get('movies', {}).values():
+                    if isinstance(m.get('duplicate_of'), list):
+                        m['duplicate_of'] = [
+                            old_mid if x == new_mid else x
+                            for x in m['duplicate_of']
+                        ]
+
+                lib['movies'].pop(new_mid, None)
+                lib['movies'].pop(new_mid, None)
+
+                # Nettoyer le dup_key du film conservé — plus aucune raison de le garder
+                old = lib['movies'].get(old_mid, {})
+                old.pop('dup_key', None)
+
+                # Nettoyer aussi l'éventuelle entrée dismissed_moves liée à cette paire
+                key = f"{old_mid}|{new_mid}"
+                dismissed = lib.get('dismissed_moves', [])
+                if key in dismissed:
+                    dismissed.remove(key)
+
+                save_library(lib)
+                self._send_json({"ok": True})
                 return
-            old = lib['movies'][old_mid]
-            new = lib['movies'][new_mid]
 
-            # The old entry's metadata has priority.
-            old['path'] = new.get('path')
-            old['missing'] = False
+            if path == "/api/moved/dismiss":
+                old_mid = body.get('old_mid')
+                new_mid = body.get('new_mid')
+                if not old_mid or not new_mid:
+                    self._send_json({"error": "invalid ids"}, 400)
+                    return
+                key = f"{old_mid}|{new_mid}"
+                dismissed = lib.setdefault('dismissed_moves', [])
+                if key not in dismissed:
+                    dismissed.append(key)
 
-            for pl_name, pl in lib.get('playlists', {}).items():
-                new_pl = []
-                seen = set()
-                for mid in pl:
-                    mid_to_add = old_mid if mid == new_mid else mid
-                    if mid_to_add in seen:
-                        continue
-                    new_pl.append(mid_to_add)
-                    seen.add(mid_to_add)
-                lib['playlists'][pl_name] = new_pl
+                # Supprimer le dup_key des deux films — plus jamais mis en relation
+                lib['movies'].get(old_mid, {}).pop('dup_key', None)
+                lib['movies'].get(new_mid, {}).pop('dup_key', None)
 
-            # Replace references in duplicate_of lists across movies
-            for m in lib.get('movies', {}).values():
-                if 'duplicate_of' in m and isinstance(m['duplicate_of'], list):
-                    m['duplicate_of'] = [old_mid if x == new_mid else x for x in m['duplicate_of']]
-
-            # Remove new_mid
-            lib['movies'].pop(new_mid, None)
-
-            save_library(lib)
-            self._send_json({"ok": True})
-            return
-
-        if path == "/api/moved/dismiss":
-            old_mid = body.get('old_mid')
-            new_mid = body.get('new_mid')
-            if not old_mid or not new_mid:
-                self._send_json({"error": "invalid ids"}, 400)
+                save_library(lib)
+                self._send_json({"ok": True})
                 return
-            key = f"{old_mid}|{new_mid}"
-            dismissed = lib.setdefault('dismissed_moves', [])
-            if key not in dismissed:
-                dismissed.append(key)
-            save_library(lib)
-            self._send_json({"ok": True})
-            return
 
-        if path == "/api/settings":
-            # Update persistent UI settings sent from the frontend
-            settings = body if isinstance(body, dict) else {}
-            lib['settings'] = lib.get('settings', {})
-            # Merge provided keys
-            for k, v in settings.items():
-                lib['settings'][k] = v
-            save_library(lib)
-            self._send_json({"ok": True, "settings": lib['settings']})
-            return
+            if path == "/api/settings":
+                settings = body if isinstance(body, dict) else {}
+                lib.setdefault('settings', {}).update(settings)
+                save_library(lib)
+                self._send_json({"ok": True, "settings": lib['settings']})
+                return
 
-        if path == "/api/favorite":
-            lib["movies"][body["id"]]["favorite"] = bool(body["value"])
-        elif path == "/api/tags":
-            lib["movies"][body["id"]]["tags"] = body["tags"]
-        elif path == "/api/tag/rename":
-            for m in lib["movies"].values():
-                if body["old"] in m.get("tags", []):
-                    m["tags"] = [body["new"] if t ==
-                                 body["old"] else t for t in m["tags"]]
-        elif path == "/api/tag/delete":
-            for m in lib["movies"].values():
-                if body["tag"] in m.get("tags", []):
-                    m["tags"].remove(body["tag"])
-        elif path == "/api/playlist/create":
-            lib["playlists"][body["name"]] = []
-        elif path == "/api/playlist/delete":
-            lib["playlists"].pop(body["name"], None)
-        elif path == "/api/playlist/toggle":
-            pl = lib["playlists"][body["name"]]
-            if body["id"] in pl:
-                pl.remove(body["id"])
+            if path == "/api/backup":
+                from datetime import datetime
+                backup_dir = DATA_DIR / "backups"
+                backup_dir.mkdir(exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_path = backup_dir / f"library_backup_{timestamp}.json"
+                with open(backup_path, "w", encoding="utf-8") as f:
+                    json.dump(lib, f, ensure_ascii=False, indent=2)
+                self._send_json({"ok": True, "file": backup_path.name})
+                return
+            
+            # --- Chaîne elif (save_library commun en fin) ---
+
+            if path == "/api/favorite":
+                lib["movies"][body["id"]]["favorite"] = bool(body["value"])
+
+            elif path == "/api/tags":
+                lib["movies"][body["id"]]["tags"] = body["tags"]
+
+            elif path == "/api/tag/rename":
+                old, new = body["old"], body["new"]
+                for m in lib["movies"].values():
+                    if old in m.get("tags", []):
+                        m["tags"] = [new if t == old else t for t in m["tags"]]
+
+            elif path == "/api/tag/delete":
+                tag = body["tag"]
+                for m in lib["movies"].values():
+                    m.get("tags", []) and tag in m["tags"] and m["tags"].remove(tag)
+
+            elif path == "/api/playlist/create":
+                lib["playlists"][body["name"]] = []
+
+            elif path == "/api/playlist/delete":
+                lib["playlists"].pop(body["name"], None)
+
+            elif path == "/api/playlist/toggle":
+                pl = lib["playlists"][body["name"]]
+                if body["id"] in pl:
+                    pl.remove(body["id"])
+                else:
+                    pl.append(body["id"])
+
+            elif path == "/api/movie/delete":
+                movie_id = body.get("id")
+                if movie_id in lib.get("movies", {}):
+                    lib["movies"].pop(movie_id)
+                    for pl in lib.get("playlists", {}).values():
+                        if movie_id in pl:
+                            pl.remove(movie_id)
+                save_library(lib)
+                self._send_json({"ok": True})
+                return
+
+            elif path == "/api/rating":
+                movie_id = body.get("id")
+                rating = body.get("rating")
+                if movie_id not in lib.get("movies", {}):
+                    self._send_json({"error": "film introuvable"}, 404)
+                    return
+                if rating is not None and (not isinstance(rating, (int, float)) or not (0 <= rating <= 10)):
+                    self._send_json({"error": "note invalide (0-10)"}, 400)
+                    return
+                if rating is None:
+                    lib["movies"][movie_id].pop("rating", None)
+                else:
+                    lib["movies"][movie_id]["rating"] = rating
             else:
-                pl.append(body["id"])
-        elif path == "/api/movie/delete":
-            movie_id = body.get("id")
-            if movie_id in lib.get("movies", {}):
-                lib["movies"].pop(movie_id, None)
-                for pl in lib.get("playlists", {}).values():
-                    if movie_id in pl:
-                        pl.remove(movie_id)
-            self._send_json({"ok": True})
-            return
+                self._send_json({"error": "unknown route"}, 404)
+                return
 
         save_library(lib)
         self._send_json({"ok": True, "playlists": lib.get("playlists")})
-
-
+        
+        
 def main():
+    cleanup_tmp_files()  # ← ici
     if not DATA_FILE.exists():
         scan_movies()
     server = ThreadingHTTPServer(("localhost", PORT), Handler)
@@ -497,3 +572,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

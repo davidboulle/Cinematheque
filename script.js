@@ -103,6 +103,9 @@ function filteredMovies() {
         movies.sort((a, b) => (a.size_bytes || 0) - (b.size_bytes || 0));
         if (sortOrder === 'desc') movies.reverse();
     } else if (sortType === 'random') {
+        // Tri déterministe avant shuffle — garantit stabilité du seed
+        movies.sort((a, b) => a.id.localeCompare(b.id));
+        
         let seed = randomSeed;
         for (let i = movies.length - 1; i > 0; i--) {
             const j = Math.floor(seededRandom(seed++) * (i + 1));
@@ -164,6 +167,15 @@ async function performDeletePlaylist(name) {
         currentFilter = { type: 'all', value: null };
     }
     renderSidebar();
+    renderGrid();
+}
+
+async function setRating(movieId, rating) {
+    await api('/api/rating', {
+        method: 'POST',
+        body: JSON.stringify({ id: movieId, rating: rating })
+    });
+    library.movies[movieId].rating = rating;
     renderGrid();
 }
 
@@ -287,13 +299,22 @@ function openDetailsPopover(id, anchor) {
         ['Nom du fichier', m.title],
         ['Chemin complet', m.path],
         ['Taille', formatSize(m.size_bytes)],
-        ['Année détectée', m.year || '—'],
+       // ['Année détectée', m.year || '—'],
     ];
 
     const allPlaylists = Object.keys(library.playlists || {});
 
     pop.innerHTML = `
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">DÉTAILS DU FICHIER</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div style="font-size:11px;color:var(--text-muted);">DÉTAILS DU FICHIER</div>
+          <div class="star-rating" id="starRating" data-current="${m.rating ?? 0}">
+            ${[2,4,6,8,10].map(val => `
+              <span class="star" data-value="${val}">
+                ${(m.rating ?? 0) >= val ? '★' : (m.rating ?? 0) >= val - 1 ? '⯪' : '★'}
+              </span>
+            `).join('')}
+          </div>
+        </div>
         ${rows.map(([label, value]) => `
           <div class="detail-row">
             <span class="detail-label">${escapeHtml(label)}</span>
@@ -400,6 +421,42 @@ function openDetailsPopover(id, anchor) {
         }
     };
 
+    const starRating = pop.querySelector('#starRating');
+    const stars = [...starRating.querySelectorAll('.star')];
+
+    function renderStarState(hoverVal) {
+        const current = parseFloat(starRating.dataset.current) || 0;
+        const active = hoverVal ?? current;
+        stars.forEach(s => {
+            const v = parseInt(s.dataset.value);
+
+            s.textContent = active >= v ? '★' : active >= v - 1 ? '⯪' : '☆';
+            s.style.color = active >= v - 1 ? 'var(--amber)' : 'var(--text-muted)';
+        });
+    }
+
+    stars.forEach(s => {
+        s.addEventListener('mousemove', e => {
+            const half = e.offsetX < s.offsetWidth / 2;
+            const val = parseInt(s.dataset.value) - (half ? 1 : 0);
+            renderStarState(val);
+        });
+        s.addEventListener('click', async e => {
+            const half = e.offsetX < s.offsetWidth / 2;
+            const val = parseInt(s.dataset.value) - (half ? 1 : 0);
+            starRating.dataset.current = val;
+            renderStarState(val);
+            await setRating(id, val);
+        });
+        s.addEventListener('dblclick', async () => {
+            starRating.dataset.current = 0;
+            renderStarState(null);
+            await setRating(id, null);
+        });
+    });
+
+    renderStarState(null);
+    starRating.addEventListener('mouseleave', () => renderStarState(null));
     setTimeout(() => document.addEventListener('click', outsideClickClose), 0);
 }
 
@@ -748,7 +805,7 @@ document.getElementById('scanBtn').onclick = async () => {
     const btn = document.getElementById('scanBtn');
     btn.textContent = '⏳ Scan en cours…';
     library = await api('/api/scan');
-    btn.textContent = '↻ Rescanner les dossiers';
+    btn.textContent = '🔄️ Rescanner les dossiers';
     renderSidebar();
     renderGrid();
     try { await checkMoved(); } catch (e) { console.error('checkMoved after scan failed', e); }
@@ -799,6 +856,29 @@ document.getElementById('genThumbsBtn').onclick = async () => {
     renderGrid();
 };
 
+document.getElementById('saveBackUpBtn').onclick = async () => {
+    const btn = document.getElementById('saveBackUpBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Sauvegarde en cours…';
+
+    try {
+        const res = await api('/api/backup', { method: 'POST', body: JSON.stringify({}) });
+        btn.textContent = `✅ ${res.file}`;
+        setTimeout(() => {
+            btn.textContent = '💾';
+            btn.disabled = false;
+        }, 3000);
+    } catch (e) {
+        console.error('[backup] erreur catch:', e);
+        btn.textContent = '❌ Une erreur est survenue';
+        setTimeout(() => {
+            btn.textContent = '💾';
+            btn.disabled = false;
+        }, 3000);
+    }
+
+};
+
 document.getElementById('bulkTagBtn').onclick = async () => {
     const input = document.getElementById('bulkTagInput');
     const tagName = input.value.trim();
@@ -809,15 +889,17 @@ document.getElementById('bulkTagBtn').onclick = async () => {
 
     const btn = document.getElementById('bulkTagBtn');
     btn.disabled = true;
-    btn.textContent = '⏳…';
 
     const toUpdate = movies.filter(m => !(m.tags || []).some(t => t.toLowerCase() === tagName.toLowerCase()));
 
-    await Promise.all(toUpdate.map(async m => {
+    let done = 0;
+    for (const m of toUpdate) {
         const newTags = [...(m.tags || []), tagName];
         await api('/api/tags', { method: 'POST', body: JSON.stringify({ id: m.id, tags: newTags }) });
         library.movies[m.id].tags = newTags;
-    }));
+        done++;
+        btn.textContent = `⏳ ${done}/${toUpdate.length}`;
+    }
 
     btn.disabled = false;
     btn.textContent = '+ Ajouter';
@@ -933,10 +1015,10 @@ function showMovedNotifications(list) {
         const title = it.title || '';
         const oldp = it.old_path || '';
         const newp = it.new_path || '';
-        return `${i+1}. ${title}\n   Ancien: ${oldp}\n   Nouveau: ${newp}`;
+        return `${i+1}. ${title}\n———Ancien: ${oldp}\n\n———Nouveau: ${newp}`;
     });
 
-    const msg = `Les fichiers suivants semblent avoir été déplacés:\n\n${lines.join('\n\n')}\n\nOK = Confirmer tous les déplacements\nAnnuler = Ignorer tous`;
+    const msg = `Les fichiers suivants semblent avoir été déplacés:\n\n${lines.join('\n\n\n')}\n\n\nOK = Confirmer tous les déplacements\nAnnuler = Ignorer et garder les copies`;
     const ok = confirm(msg);
     (async () => {
         if (ok) {

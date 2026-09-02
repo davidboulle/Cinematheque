@@ -73,7 +73,7 @@ header {
 .header-inner {
     display: flex;
     align-items: center;
-    gap: 24px;
+    gap: 16px;
     padding: 18px 28px;
     flex-wrap: wrap;
 }
@@ -722,6 +722,21 @@ main {
     width: 340px;
 }
 
+.star-rating {
+    font-family: "Noto Sans Symbols 2";
+    display: flex;
+    gap: 2px;
+    cursor: pointer;
+}
+
+.star {
+    font-size: 18px;
+    color: var(--text-muted);
+    transition: color 0.1s, transform 0.1s;
+    user-select: none;
+    width: 1em;
+}
+
 .dup-entry {
     border: 1px solid var(--line);
     border-radius: var(--radius);
@@ -777,11 +792,11 @@ main {
     font-size: 12px;
 }
 
-.detail-row:nth-child(-n+4) {
+.detail-row:nth-child(-n+3) {
     flex-direction: column;
 }
 
-.detail-row:nth-child(-n+4) .detail-value {
+.detail-row:nth-child(-n+3) .detail-value {
     text-align: left;
 }
 

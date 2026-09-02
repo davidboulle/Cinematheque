@@ -2,11 +2,9 @@
 config.py
 
 # Fichier de données
-library.json
-library_backup.json
+data/*
 
 # Dossiers générés automatiquement
-thumbnails/
 __pycache__/
 
 # Raccourcis & autres

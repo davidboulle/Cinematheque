@@ -6,7 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cinémathèque</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap"
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Symbols+2&display=swap" rel="stylesheet">
     rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -17,10 +19,11 @@
     <div class="header-inner">
       <h1>🎞 CINÉMATHÈQUE</h1>
       <input type="text" class="search" id="search" placeholder="Rechercher un titre, un réalisateur, un acteur…">
-      <button class="btn" id="scanBtn">↻ Rescanner les dossiers</button>
+      <button class="btn" id="scanBtn">🔄️ Rescanner les dossiers</button>
       <button class="btn" id="genThumbsBtn"
-        title="Extrait une image de chaque film via ffmpeg — peut prendre du temps la première fois">🎬 Générer les
+        title="Extrait une image de chaque film via ffmpeg">🎬 Générer les
         miniatures</button>
+        <button class="btn" id="saveBackUpBtn" title="Sauvegarder la bibliothèque">💾</button>
     </div>
     <div class="sprockets"></div>
   </header>
