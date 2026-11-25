@@ -1,3 +1,18 @@
+// ==========================================
+// 0. TODO LIST
+// ==========================================
+
+// Changer le script de scan de fichiers:
+//   plutot que d'avoir un scan de fichier et un scan de catégories séparés (avec chemins précisés dans le fichier config)
+//   faire un scan unique qui détecte les fichier et les raccourcis. quand c'est un raccourcis alors il ajoute les tags correspondants au fichier pointé.
+// Ajouter une option ignorer dans la popover des doublons (pour traiter les faux positifs)
+// Ajouter un tri par notation dans la sidebar
+// Ajouter un systeme de catégories préférées (avec un coeur/étoile et elles sont afficheés en premier dans la sidebar)
+
+// Ajouter un systeme de streaming pour visualiser les films dans le navigateur (devrait être rapide car serveur local)
+// Afficher les playlist en haut de la side bar (directement sous favoris)
+
+
 let library = { movies: {}, playlists: {} };
 let currentFilter = { type: 'all', value: null };
 let searchTerm = '';
@@ -60,8 +75,8 @@ function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function escapeAttr(str) { 
-    return escapeHtml(str); 
+function escapeAttr(str) {
+    return escapeHtml(str);
 }
 
 function seededRandom(seed) {
@@ -105,7 +120,7 @@ function filteredMovies() {
     } else if (sortType === 'random') {
         // Tri déterministe avant shuffle — garantit stabilité du seed
         movies.sort((a, b) => a.id.localeCompare(b.id));
-        
+
         let seed = randomSeed;
         for (let i = movies.length - 1; i > 0; i--) {
             const j = Math.floor(seededRandom(seed++) * (i + 1));
@@ -219,7 +234,7 @@ function attachPlaylistToggleListeners(pop, id) {
             const playlistPillsEl = pop.querySelector('#playlistPills');
             const allPlaylists = Object.keys(library.playlists || {});
             playlistPillsEl.innerHTML = allPlaylists.length ? allPlaylists.map(p => `
-              <span class="pill" data-playlist="${escapeAttr(p)}" style="cursor:pointer;${(library.playlists[p] || []).includes(id) ? 'border-color:var(--amber);color:var(--amber);' : ''}">
+              <span class="pill ${(library.playlists[p] || []).includes(id) ? 'remove' : ''}" data-playlist="${escapeAttr(p)}">
                 ${(library.playlists[p] || []).includes(id) ? '✓ ' : ''}${escapeHtml(p)}
               </span>`).join('') : `<span style="font-size:12px;color:var(--text-muted);">Aucune playlist pour l'instant</span>`;
             attachPlaylistToggleListeners(pop, id);
@@ -254,9 +269,9 @@ function openDuplicatesPopover(id, anchor) {
           ${groupIds.length} FICHIERS AU TITRE SIMILAIRE — compare et supprime toi-même celui que tu ne veux pas garder
         </div>
         ${groupIds.map(gid => {
-            const gm = library.movies[gid];
-            if (!gm) return '';
-            return `
+        const gm = library.movies[gid];
+        if (!gm) return '';
+        return `
             <div class="dup-entry">
               <p class="dup-title">${escapeHtml(gm.title)}</p>
               <p class="dup-path">${escapeHtml(gm.path)}</p>
@@ -266,7 +281,7 @@ function openDuplicatesPopover(id, anchor) {
                 <button class="btn" data-reveal="${gid}">📂 Ouvrir le dossier</button>
               </div>
             </div>`;
-        }).join('')}
+    }).join('')}
     `;
     document.body.appendChild(pop);
 
@@ -299,16 +314,16 @@ function openDetailsPopover(id, anchor) {
         ['Nom du fichier', m.title],
         ['Chemin complet', m.path],
         ['Taille', formatSize(m.size_bytes)],
-       // ['Année détectée', m.year || '—'],
+        // ['Année détectée', m.year || '—'],
     ];
 
     const allPlaylists = Object.keys(library.playlists || {});
 
     pop.innerHTML = `
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-          <div style="font-size:11px;color:var(--text-muted);">DÉTAILS DU FICHIER</div>
+        <div class="detail-header">
+          <div class="detail-title">DÉTAILS DU FICHIER</div>
           <div class="star-rating" id="starRating" data-current="${m.rating ?? 0}">
-            ${[2,4,6,8,10].map(val => `
+            ${[2, 4, 6, 8, 10].map(val => `
               <span class="star" data-value="${val}">
                 ${(m.rating ?? 0) >= val ? '★' : (m.rating ?? 0) >= val - 1 ? '⯪' : '★'}
               </span>
@@ -321,25 +336,28 @@ function openDetailsPopover(id, anchor) {
             <span class="detail-value">${escapeHtml(String(value))}</span>
           </div>
         `).join('')}
-        <div style="font-size:11px;color:var(--text-muted);margin:12px 0 4px;">ÉTIQUETTES</div>
-        <div class="tags-edit" id="tagsPills">
-          ${(m.tags || []).map(t => `<span class="pill remove" data-tag-rm="${escapeAttr(t)}" style="border-color:var(--amber-dim); color:var(--amber);"># ${escapeHtml(t)}</span>`).join('') || `<span style="font-size:12px;color:var(--text-muted);">Aucune</span>`}
+        <div class="detail-section-tags detail-label detail-header">Étiquettes</div>
+        <div class="pill-edit tags-edit" id="tagsPills">
+        ${(m.tags || []).map(t => `<span class="pill remove" data-tag-rm="${escapeAttr(t)}"># ${escapeHtml(t)}</span>`).join('') || `<span style="font-size:12px;color:var(--text-muted);">Aucune</span>`}
         </div>
         <input type="text" id="newTagInput" placeholder="Ajouter une étiquette...">
-        <div style="font-size:11px;color:var(--text-muted);margin:12px 0 4px;">PLAYLISTS</div>
-        <div class="tags-edit" id="playlistPills">
-          ${allPlaylists.length ? allPlaylists.map(p => `
-            <span class="pill" data-playlist="${escapeAttr(p)}" style="cursor:pointer;${(library.playlists[p] || []).includes(id) ? 'border-color:var(--amber);color:var(--amber);' : ''}">
-              ${(library.playlists[p] || []).includes(id) ? '✓ ' : ''}${escapeHtml(p)}
+        
+        <div class="detail-label detail-header">Playlists</div>
+        <div class="pill-edit playlists-edit" id="playlistPills">
+        ${allPlaylists.length ? allPlaylists.map(p => `
+            <span class="pill ${(library.playlists[p] || []).includes(id) ? 'remove' : ''}" data-playlist="${escapeAttr(p)}">
+            ${(library.playlists[p] || []).includes(id) ? '✓ ' : ''}${escapeHtml(p)}
             </span>`).join('') : `<span style="font-size:12px;color:var(--text-muted);">Aucune playlist pour l'instant</span>`}
         </div>
-        <input type="text" id="newPlaylistFromCard" placeholder="Nouvelle playlist...">
         <div class="detail-actions" style="margin-top:12px;">
           <button class="btn" id="detailsPlay">▶ Lire</button>
           <button class="btn" id="detailsReveal">📂 Ouvrir le dossier</button>
           ${m.missing ? `<button class="btn" id="detailsDelete">🗑 Supprimer</button>` : ''}
         </div>
     `;
+
+    // <input type="text" id="newPlaylistFromCard" placeholder="Nouvelle playlist...">
+
     document.body.appendChild(pop);
 
     pop.querySelector('#detailsPlay').onclick = () => playMovie(id);
@@ -394,13 +412,14 @@ function openDetailsPopover(id, anchor) {
             const playlistPillsEl = pop.querySelector('#playlistPills');
             const allPlaylists = Object.keys(library.playlists || {});
             playlistPillsEl.innerHTML = allPlaylists.length ? allPlaylists.map(p => `
-              <span class="pill" data-playlist="${escapeAttr(p)}" style="cursor:pointer;${(library.playlists[p] || []).includes(id) ? 'border-color:var(--amber);color:var(--amber);' : ''}">
+              <span class="pill ${(library.playlists[p] || []).includes(id) ? 'remove' : ''}" data-playlist="${escapeAttr(p)}">
                 ${(library.playlists[p] || []).includes(id) ? '✓ ' : ''}${escapeHtml(p)}
               </span>`).join('') : `<span style="font-size:12px;color:var(--text-muted);">Aucune playlist pour l'instant</span>`;
             attachPlaylistToggleListeners(pop, id);
         };
     });
 
+    /*
     const playlistInput = pop.querySelector('#newPlaylistFromCard');
     playlistInput.onkeydown = async (e) => {
         if (e.key === 'Enter' && playlistInput.value.trim()) {
@@ -413,13 +432,14 @@ function openDetailsPopover(id, anchor) {
             const playlistPillsEl = pop.querySelector('#playlistPills');
             const allPlaylists = Object.keys(library.playlists || {});
             playlistPillsEl.innerHTML = allPlaylists.length ? allPlaylists.map(p => `
-              <span class="pill" data-playlist="${escapeAttr(p)}" style="cursor:pointer;${(library.playlists[p] || []).includes(id) ? 'border-color:var(--amber);color:var(--amber);' : ''}">
+              <span class="pill ${(library.playlists[p] || []).includes(id) ? 'remove' : ''}" data-playlist="${escapeAttr(p)}">
                 ${(library.playlists[p] || []).includes(id) ? '✓ ' : ''}${escapeHtml(p)}
               </span>`).join('') : `<span style="font-size:12px;color:var(--text-muted);">Aucune playlist pour l'instant</span>`;
             playlistInput.value = '';
             attachPlaylistToggleListeners(pop, id);
         }
     };
+    */
 
     const starRating = pop.querySelector('#starRating');
     const stars = [...starRating.querySelectorAll('.star')];
@@ -478,13 +498,13 @@ function renderOptions() {
         case 'random':
         default: btnSort.textContent = 'Aléatoire';
     }
-    
+
     if (sortType === 'random') {
         btnOrder.textContent = '🔄';
     } else {
         btnOrder.textContent = sortOrder === 'asc' ? '⬇️' : '⬆️';
     }
-    
+
     btnThumbnails.textContent = showThumbnails ? '🖼️' : '✖️';
 }
 
@@ -848,9 +868,11 @@ document.getElementById('newPlaylist').onclick = async () => {
 
 document.getElementById('genThumbsBtn').onclick = async () => {
     const btn = document.getElementById('genThumbsBtn');
+    btn.disabled = true;
     btn.textContent = '⏳ Génération en cours…';
     const r = await api('/api/thumbnails/generate');
     btn.textContent = '🎬 Générer les miniatures';
+    btn.disabled = false;
     if (r.error) { alert(r.error); return; }
     alert(`Miniatures générées : ${r.generated}, existantes : ${r.skipped}, échecs : ${r.failed}`);
     renderGrid();
@@ -963,21 +985,21 @@ document.getElementById('sortType').onclick = (e) => {
     renderOptions();
     renderGrid();
     // Persist new sortType
-    api('/api/settings', { method: 'POST', body: JSON.stringify({ sortType }) }).catch(() => {});
+    api('/api/settings', { method: 'POST', body: JSON.stringify({ sortType }) }).catch(() => { });
 };
 
 document.getElementById('sortOrder').onclick = (e) => {
     if (sortType === 'random') {
         randomSeed = Math.floor(Math.random() * 1000000);
         renderGrid();
-        api('/api/settings', { method: 'POST', body: JSON.stringify({ randomSeed }) }).catch(() => {});
+        api('/api/settings', { method: 'POST', body: JSON.stringify({ randomSeed }) }).catch(() => { });
         return;
     }
     sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
     renderOptions();
     renderGrid();
     // Persist new sort order
-    api('/api/settings', { method: 'POST', body: JSON.stringify({ sortOrder }) }).catch(() => {});
+    api('/api/settings', { method: 'POST', body: JSON.stringify({ sortOrder }) }).catch(() => { });
 };
 
 document.getElementById('showHideThumbnails').onclick = (e) => {
@@ -986,7 +1008,7 @@ document.getElementById('showHideThumbnails').onclick = (e) => {
     e.target.textContent = showThumbnails ? '🖼️' : '✖️';
     renderGrid();
     // Persist thumbnail visibility
-    api('/api/settings', { method: 'POST', body: JSON.stringify({ showThumbnails }) }).catch(() => {});
+    api('/api/settings', { method: 'POST', body: JSON.stringify({ showThumbnails }) }).catch(() => { });
 };
 
 // ==========================================
@@ -1015,7 +1037,7 @@ function showMovedNotifications(list) {
         const title = it.title || '';
         const oldp = it.old_path || '';
         const newp = it.new_path || '';
-        return `${i+1}. ${title}\n———Ancien: ${oldp}\n\n———Nouveau: ${newp}`;
+        return `${i + 1}. ${title}\n———Ancien: ${oldp}\n\n———Nouveau: ${newp}`;
     });
 
     const msg = `Les fichiers suivants semblent avoir été déplacés:\n\n${lines.join('\n\n\n')}\n\n\nOK = Confirmer tous les déplacements\nAnnuler = Ignorer et garder les copies`;

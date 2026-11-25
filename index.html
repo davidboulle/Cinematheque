@@ -5,11 +5,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cinémathèque</title>
+  <link rel="icon" href="/favicon.ico" type="image/x-icon">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Symbols+2&display=swap" rel="stylesheet">
-    rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 
@@ -19,11 +19,10 @@
     <div class="header-inner">
       <h1>🎞 CINÉMATHÈQUE</h1>
       <input type="text" class="search" id="search" placeholder="Rechercher un titre, un réalisateur, un acteur…">
-      <button class="btn" id="scanBtn">🔄️ Rescanner les dossiers</button>
-      <button class="btn" id="genThumbsBtn"
-        title="Extrait une image de chaque film via ffmpeg">🎬 Générer les
+      <button class="btn" id="scanBtn" title="Scanner les dossiers et mettre à jour les films">🔄️ Scanner les dossiers</button>
+      <button class="btn" id="genThumbsBtn" title="Générer les miniatures des films">🎬 Générer les
         miniatures</button>
-        <button class="btn" id="saveBackUpBtn" title="Sauvegarder la bibliothèque">💾</button>
+      <button class="btn" id="saveBackUpBtn" title="Sauvegarder les données">💾</button>
     </div>
     <div class="sprockets"></div>
   </header>
